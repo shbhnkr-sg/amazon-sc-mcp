@@ -1,2 +1,31 @@
-.env
+# Dependencies
 node_modules/
+
+# Environment / Secrets
+.env
+.env.*
+!.env.example
+
+# Claude
+.claude/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build / Coverage
+dist/
+build/
+coverage/
+*.tgz
