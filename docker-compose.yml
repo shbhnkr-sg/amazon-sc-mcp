@@ -4,6 +4,6 @@ services:
     container_name: amazon-seller-mcp
     restart: unless-stopped
     ports:
-      - "3100:3000"
+      - "3100:8000"
     env_file:
       - .env

@@ -1,22 +1,29 @@
 # Amazon Seller Central MCP Server
 
-Docker-based deployment of [mattcoatsworth/AmazonSeller-mcp-server](https://github.com/mattcoatsworth/AmazonSeller-mcp-server) — an MCP server for Amazon's Selling Partner API.
+MCP server built from official [Amazon SP-API OpenAPI specs](https://github.com/amzn/selling-partner-api-models) using [openapi2mcp](https://pypi.org/project/openapi2mcp/).
 
 ## Stack
-- Node.js 20 (Alpine)
-- [supergateway](https://www.npmjs.com/package/supergateway) to bridge stdio → SSE (port 3000)
+- Python 3.14 / openapi2mcp / uvicorn
 - Docker / Docker Compose
+- SSE transport on port 8000 (mapped to host 3100)
 
 ## Files
-- `Dockerfile` — builds the MCP server image, installs supergateway
-- `docker-compose.yml` — service definition with env_file
-- `.env.example` — required SP-API credentials template
+- `entrypoint.py` — loads specs, configures auth, starts MCP server
+- `config.py` — model selection logic (core defaults, env-configurable)
+- `Dockerfile` — builds image with SP-API models + openapi2mcp
+- `docker-compose.yml` — service definition
+- `.env.example` — required credentials template
 
 ## Usage
 ```bash
-cp .env.example .env   # fill in your credentials
+cp .env.example .env   # fill in SP-API credentials
 docker compose up -d --build
 ```
 
-## Deployment target
+## Model selection
+- Default: 12 core seller APIs (orders, catalog, listings, inventory, etc.)
+- Set `SP_API_MODELS=all` for all 51 APIs
+- Or comma-separate specific model names
+
+## Deployment
 Remote server `mk@192.168.0.150` — pull via git, run docker compose.

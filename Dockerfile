@@ -1,15 +1,17 @@
-FROM node:20-alpine
+FROM python:3.14-slim
 
 WORKDIR /app
 
-RUN apk add --no-cache git
+RUN apt-get update && apt-get install -y --no-install-recommends git && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN git clone https://github.com/mattcoatsworth/AmazonSeller-mcp-server.git .
+RUN git clone --depth 1 https://github.com/amzn/selling-partner-api-models.git /app/sp-api-models
 
-RUN npm install
+RUN pip install --no-cache-dir openapi2mcp uvicorn
 
-RUN npm install supergateway
+COPY entrypoint.py .
+COPY config.py .
 
-EXPOSE 3000
+EXPOSE 8000
 
-CMD ["npx", "supergateway", "--stdio", "node src/index.js", "--port", "3000", "--host", "0.0.0.0"]
+CMD ["python", "entrypoint.py"]
