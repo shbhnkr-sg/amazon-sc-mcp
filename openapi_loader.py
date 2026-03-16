@@ -69,6 +69,8 @@ def load_spec(spec_path: str) -> list[dict]:
         for method, operation in methods.items():
             if method in ("parameters", "x-amzn-api-sandbox"):
                 continue
+            if not isinstance(operation, dict):
+                continue
 
             op_id = operation.get("operationId", "")
             summary = operation.get("summary", "")
@@ -81,6 +83,8 @@ def load_spec(spec_path: str) -> list[dict]:
             required = []
 
             for param in operation.get("parameters", []):
+                if not isinstance(param, dict):
+                    continue
                 p_name = param.get("name", "")
                 p_in = param.get("in", "")
                 p_required = param.get("required", False)
