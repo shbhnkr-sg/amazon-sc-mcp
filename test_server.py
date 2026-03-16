@@ -26,9 +26,9 @@ async def run_tests(base_url: str):
                 # Test 1: Initialize
                 print("1. Initialize...", end=" ")
                 result = await session.initialize()
-                server_name = result.server_info.name if result.server_info else "unknown"
+                server_name = result.serverInfo.name if result.serverInfo else "unknown"
                 assert server_name == "amazon-seller-central", f"got {server_name}"
-                print(f"OK — server: {server_name}, protocol: {result.protocol_version}")
+                print(f"OK — server: {server_name}, protocol: {result.protocolVersion}")
                 passed += 1
 
                 # Test 2: List tools
