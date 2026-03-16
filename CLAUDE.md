@@ -1,20 +1,18 @@
 # Amazon Seller Central MCP Server
 
-MCP server built directly on the [MCP Python SDK](https://pypi.org/project/mcp/) from official [Amazon SP-API Swagger specs](https://github.com/amzn/selling-partner-api-models).
+MCP server built on the [MCP Python SDK](https://pypi.org/project/mcp/) (low-level Server) from official [Amazon SP-API Swagger specs](https://github.com/amzn/selling-partner-api-models).
 
 ## Stack
-- Python 3.14 / mcp SDK / httpx / uvicorn / starlette
+- Python 3.14 / mcp==1.26.0 / httpx / uvicorn / starlette
+- Streamable HTTP transport (single /mcp endpoint)
 - Docker / Docker Compose
-- SSE transport on port 8000 (mapped to host 3100)
 
 ## Files
-- `entrypoint.py` — MCP server with SSE transport, tool dispatch, API calls
-- `openapi_loader.py` — parses Swagger 2.0 specs into MCP tool definitions
+- `entrypoint.py` — MCP server: tool registration, dispatch, Streamable HTTP transport
+- `openapi_loader.py` — parses Swagger 2.0 specs into MCP tool definitions with exact JSON Schema
 - `sp_auth.py` — LWA OAuth refresh_token flow for SP-API auth
-- `config.py` — model selection logic (core defaults, env-configurable)
-- `Dockerfile` — builds image with SP-API models + MCP SDK
-- `docker-compose.yml` — service definition
-- `.env.example` — required SP-API credentials template
+- `config.py` — model selection logic (12 core APIs by default, configurable via SP_API_MODELS)
+- `test_server.py` — end-to-end MCP protocol smoke test (works without credentials)
 
 ## Usage
 ```bash
@@ -22,10 +20,20 @@ cp .env.example .env   # fill in SP-API credentials
 docker compose up -d --build
 ```
 
+## Testing
+```bash
+# Inside container or with mcp installed locally
+python test_server.py http://localhost:3100
+
+# Remote
+python test_server.py http://192.168.0.150:3100
+```
+
 ## Model selection
 - Default: 12 core seller APIs
-- Set `SP_API_MODELS=all` for all 51 APIs
-- Or comma-separate specific model names
+- `SP_API_MODELS=all` for all 51 APIs
+- Or comma-separate specific model directory names
 
-## Deployment
-Remote server `mk@192.168.0.150` — pull via git, run docker compose.
+## Endpoints
+- `POST /mcp` — MCP Streamable HTTP (main protocol endpoint)
+- `GET /health` — healthcheck (returns `{"status": "ok"}`)
