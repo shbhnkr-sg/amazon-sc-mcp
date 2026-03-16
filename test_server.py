@@ -45,17 +45,17 @@ async def run_tests(base_url: str):
 
                 # Test 3: Verify tool schemas have proper structure
                 print("3. Schema check...", end=" ")
-                sample_tool = next((t for t in tools_result.tools if t.name == "getOrders"), None)
-                assert sample_tool is not None, "getOrders tool not found"
+                sample_tool = next((t for t in tools_result.tools if t.name == "searchOrders"), None)
+                assert sample_tool is not None, "searchOrders tool not found"
                 schema = sample_tool.inputSchema
                 assert "properties" in schema, "missing properties in schema"
                 assert schema.get("type") == "object", "schema type not object"
-                print(f"OK — getOrders has {len(schema['properties'])} params")
+                print(f"OK — searchOrders has {len(schema['properties'])} params")
                 passed += 1
 
                 # Test 4: Call a tool (expect auth error — proves MCP dispatch works)
-                print("4. Call getOrders...", end=" ")
-                call_result = await session.call_tool("getOrders", {"MarketplaceIds": "ATVPDKIKX0DER"})
+                print("4. Call searchOrders...", end=" ")
+                call_result = await session.call_tool("searchOrders", {"MarketplaceIds": "ATVPDKIKX0DER"})
                 content = call_result.content[0].text
                 assert content, "empty response"
                 data = json.loads(content)
