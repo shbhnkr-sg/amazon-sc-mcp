@@ -5,5 +5,7 @@ services:
     restart: unless-stopped
     ports:
       - "3100:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
     env_file:
       - .env
