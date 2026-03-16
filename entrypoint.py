@@ -1,42 +1,116 @@
 """
 Amazon Seller Central MCP Server
 
-Loads official SP-API OpenAPI specs and serves them as MCP tools via SSE.
-Specs with circular $ref or parse errors are skipped gracefully.
+Serves official SP-API endpoints as MCP tools via SSE.
+Built directly on the MCP Python SDK — no third-party wrappers.
 """
 
 import os
 import sys
 import json
+import httpx
+from mcp.server import Server
+from mcp.server.sse import SseServerTransport
+from mcp.types import Tool, TextContent
+from starlette.applications import Starlette
+from starlette.routing import Route, Mount
 import uvicorn
+
 from config import get_spec_files
+from openapi_loader import load_spec
+from sp_auth import SPAPIAuth
 
 
-def load_specs_resilient(spec_files, auth_config):
-    """Load specs one by one, skipping any that fail to parse."""
-    from openapi2mcp.server import MCPServer
+def load_all_tools(spec_files: list[str]) -> list[dict]:
+    """Load tools from all spec files, skipping broken ones."""
+    all_tools = []
+    seen_names = set()
 
-    valid_specs = []
     for spec_file in spec_files:
         name = os.path.basename(spec_file)
         try:
-            # Test-load: create a throwaway server with just this spec
-            test = MCPServer(spec_files=[spec_file], auth_config=auth_config)
-            if test.tools:
-                valid_specs.append(spec_file)
-                print(f"  OK  {name} ({len(test.tools)} tools)")
-            else:
-                print(f"  SKIP {name} (0 tools extracted)")
+            tools = load_spec(spec_file)
+            # Deduplicate tool names
+            new_tools = []
+            for t in tools:
+                if t["name"] not in seen_names:
+                    seen_names.add(t["name"])
+                    new_tools.append(t)
+            all_tools.extend(new_tools)
+            print(f"  OK  {name} ({len(new_tools)} tools)")
         except Exception as e:
-            err_msg = str(e).split("\n")[0][:120]
-            print(f"  FAIL {name}: {err_msg}")
+            err = str(e).split("\n")[0][:120]
+            print(f"  FAIL {name}: {err}")
 
-    if not valid_specs:
-        print("ERROR: No specs loaded successfully.", file=sys.stderr)
-        sys.exit(1)
+    return all_tools
 
-    # Build final server with all valid specs
-    server = MCPServer(spec_files=valid_specs, auth_config=auth_config)
+
+def create_server(tools: list[dict], auth: SPAPIAuth) -> Server:
+    """Create an MCP Server with tools for each SP-API endpoint."""
+    server = Server("amazon-seller-central")
+
+    # Build a lookup by tool name
+    tool_map = {t["name"]: t for t in tools}
+
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [
+            Tool(
+                name=t["name"],
+                description=t["description"],
+                inputSchema=t["inputSchema"],
+            )
+            for t in tools
+        ]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+        tool_def = tool_map.get(name)
+        if not tool_def:
+            return [TextContent(type="text", text=f"Unknown tool: {name}")]
+
+        method = tool_def["method"]
+        path = tool_def["path"]
+        base_url = tool_def["base_url"]
+
+        # Substitute path parameters
+        query_params = {}
+        body = None
+        headers = await auth.auth_headers()
+        headers["Content-Type"] = "application/json"
+
+        for param_name, value in arguments.items():
+            placeholder = f"{{{param_name}}}"
+            if placeholder in path:
+                path = path.replace(placeholder, str(value))
+            elif param_name == "body":
+                try:
+                    body = json.loads(value) if isinstance(value, str) else value
+                except json.JSONDecodeError:
+                    body = value
+            else:
+                query_params[param_name] = value
+
+        url = f"{base_url}{path}"
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.request(
+                    method=method,
+                    url=url,
+                    params=query_params or None,
+                    json=body,
+                    headers=headers,
+                )
+                result = {
+                    "status": resp.status_code,
+                    "data": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text,
+                }
+        except Exception as e:
+            result = {"error": str(e)}
+
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
     return server
 
 
@@ -44,37 +118,50 @@ def main():
     spec_files = get_spec_files()
 
     if not spec_files:
-        print("ERROR: No SP-API spec files found. Check SP_API_MODELS env var.", file=sys.stderr)
+        print("ERROR: No SP-API spec files found.", file=sys.stderr)
         sys.exit(1)
 
     print(f"Loading {len(spec_files)} SP-API specs:\n")
 
-    auth_config = None
-    client_id = os.environ.get("SP_API_CLIENT_ID")
-    client_secret = os.environ.get("SP_API_CLIENT_SECRET")
-    token_url = os.environ.get("SP_API_TOKEN_URL", "https://api.amazon.com/auth/o2/token")
+    tools = load_all_tools(spec_files)
 
-    if client_id and client_secret:
-        auth_config = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "token_url": token_url,
-        }
-        print("Auth: LWA OAuth configured\n")
+    if not tools:
+        print("ERROR: No tools loaded.", file=sys.stderr)
+        sys.exit(1)
+
+    auth = SPAPIAuth()
+    if auth.configured:
+        print(f"\nAuth: LWA OAuth configured")
     else:
-        print("WARNING: No SP-API credentials set - API calls will fail auth\n", file=sys.stderr)
+        print(f"\nWARNING: Missing SP-API credentials — API calls will fail", file=sys.stderr)
 
-    server = load_specs_resilient(spec_files, auth_config)
+    server = create_server(tools, auth)
 
-    print(f"\nTotal: {len(server.tools)} MCP tools registered")
+    print(f"\nTotal: {len(tools)} MCP tools registered")
 
     host = os.environ.get("MCP_HOST", "0.0.0.0")
     port = int(os.environ.get("MCP_PORT", "8000"))
 
-    print(f"\nMCP server listening on http://{host}:{port}")
-    print(f"  SSE endpoint:  http://{host}:{port}/sse")
+    sse = SseServerTransport("/messages/")
 
-    app = server.get_app()
+    async def handle_sse(request):
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
+            await server.run(
+                streams[0], streams[1], server.create_initialization_options()
+            )
+
+    app = Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
+        ],
+    )
+
+    print(f"\nMCP server on http://{host}:{port}")
+    print(f"  SSE: http://{host}:{port}/sse")
+
     uvicorn.run(app, host=host, port=port)
 
 
