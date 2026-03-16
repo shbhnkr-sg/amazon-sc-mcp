@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && \
 
 RUN git clone --depth 1 https://github.com/amzn/selling-partner-api-models.git /app/sp-api-models
 
-RUN pip install --no-cache-dir openapi2mcp uvicorn
+RUN pip install --no-cache-dir openapi2mcp "fastmcp>=2.4.0,<3.0" uvicorn
 
 COPY entrypoint.py .
 COPY config.py .
