@@ -22,8 +22,8 @@ docker compose up -d --build
 
 ## Testing
 ```bash
-# Inside container or with mcp installed locally
-python test_server.py http://localhost:3100
+# Inside container
+python test_server.py http://localhost:8000
 
 # Remote
 python test_server.py http://192.168.0.150:3100
@@ -37,3 +37,18 @@ python test_server.py http://192.168.0.150:3100
 ## Endpoints
 - `POST /mcp` — MCP Streamable HTTP (main protocol endpoint)
 - `GET /health` — healthcheck (returns `{"status": "ok"}`)
+
+## Security
+- Origin header validation via `MCP_ALLOWED_ORIGINS` env var
+- Set to comma-separated allowed origins (empty = allow all)
+
+## Error Handling
+- Unknown tools → JSON-RPC error (McpError, never reaches LLM)
+- API failures → structured JSON response (LLM sees and can retry)
+- Auth failures → graceful error message (server stays running)
+
+## Tool Annotations
+- GET endpoints → `readOnlyHint: true`
+- DELETE endpoints → `destructiveHint: true`
+- PUT endpoints → `idempotentHint: true`
+- All endpoints → `openWorldHint: true` (external SP-API calls)

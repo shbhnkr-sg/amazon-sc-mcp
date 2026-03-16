@@ -116,6 +116,22 @@ def load_spec(spec_path: str) -> list[dict]:
             if required:
                 input_schema["required"] = required
 
+            # Derive annotations from HTTP method
+            annotations = {"openWorldHint": True}
+            if method.upper() == "GET":
+                annotations["readOnlyHint"] = True
+                annotations["destructiveHint"] = False
+            elif method.upper() == "DELETE":
+                annotations["readOnlyHint"] = False
+                annotations["destructiveHint"] = True
+            elif method.upper() == "PUT":
+                annotations["readOnlyHint"] = False
+                annotations["destructiveHint"] = False
+                annotations["idempotentHint"] = True
+            else:
+                annotations["readOnlyHint"] = False
+                annotations["destructiveHint"] = False
+
             tools.append({
                 "name": tool_name,
                 "description": f"[{spec_title}] {description[:500]}",
@@ -123,6 +139,7 @@ def load_spec(spec_path: str) -> list[dict]:
                 "method": method.upper(),
                 "path": f"{base_path}{path}",
                 "base_url": base_url,
+                "annotations": annotations,
             })
 
     return tools

@@ -12,8 +12,10 @@ import contextlib
 import httpx
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import Tool, TextContent
+from mcp.shared.exceptions import McpError
+from mcp.types import Tool, TextContent, ToolAnnotations, ErrorData, INVALID_PARAMS
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.routing import Mount, Route
 from starlette.responses import JSONResponse
 import uvicorn
@@ -61,6 +63,7 @@ def create_server(tools: list[dict], auth: SPAPIAuth) -> Server:
                 name=t["name"],
                 description=t["description"],
                 inputSchema=t["inputSchema"],
+                annotations=ToolAnnotations(**t.get("annotations", {})),
             )
             for t in tools
         ]
@@ -69,7 +72,7 @@ def create_server(tools: list[dict], auth: SPAPIAuth) -> Server:
     async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         tool_def = tool_map.get(name)
         if not tool_def:
-            return [TextContent(type="text", text=f"Unknown tool: {name}")]
+            raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Unknown tool: {name}"))
 
         method = tool_def["method"]
         path = tool_def["path"]
@@ -77,7 +80,7 @@ def create_server(tools: list[dict], auth: SPAPIAuth) -> Server:
 
         query_params = {}
         body = None
-        headers = await auth.auth_headers()
+        headers = await auth.auth_headers(_http_client)
         headers["Content-Type"] = "application/json"
 
         for param_name, value in arguments.items():
@@ -107,8 +110,12 @@ def create_server(tools: list[dict], auth: SPAPIAuth) -> Server:
                 "status": resp.status_code,
                 "data": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text,
             }
+        except httpx.HTTPStatusError as e:
+            result = {"error": f"HTTP {e.response.status_code}", "detail": str(e)}
+        except httpx.RequestError as e:
+            result = {"error": "request_failed", "detail": str(e)}
         except Exception as e:
-            result = {"error": str(e)}
+            result = {"error": "unexpected", "detail": str(e)}
 
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
@@ -117,6 +124,26 @@ def create_server(tools: list[dict], auth: SPAPIAuth) -> Server:
 
 async def health(request):
     return JSONResponse({"status": "ok"})
+
+
+class OriginValidationMiddleware:
+    """Validate Origin header on MCP requests to prevent DNS rebinding."""
+
+    def __init__(self, app, allowed_origins: list[str] | None = None):
+        self.app = app
+        self.allowed_origins = allowed_origins
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            origin = headers.get(b"origin", b"").decode()
+            if origin and self.allowed_origins and origin not in self.allowed_origins:
+                response = JSONResponse(
+                    {"error": "Origin not allowed"}, status_code=403
+                )
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 def main():
@@ -163,12 +190,16 @@ def main():
     host = os.environ.get("MCP_HOST", "0.0.0.0")
     port = int(os.environ.get("MCP_PORT", "8000"))
 
+    allowed_origins_str = os.environ.get("MCP_ALLOWED_ORIGINS", "")
+    allowed_origins = [o.strip() for o in allowed_origins_str.split(",") if o.strip()] or None
+
     app = Starlette(
         routes=[
             Route("/health", health),
             Mount("/mcp", app=handle_mcp),
         ],
         lifespan=lifespan,
+        middleware=[Middleware(OriginValidationMiddleware, allowed_origins=allowed_origins)],
     )
 
     print(f"\nMCP server on http://{host}:{port}")
