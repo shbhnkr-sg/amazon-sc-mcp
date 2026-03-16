@@ -55,18 +55,22 @@ async def run_tests(base_url: str):
 
                 # Test 4: Call a tool (expect auth error — proves MCP dispatch works)
                 print("4. Call searchOrders...", end=" ")
-                call_result = await session.call_tool("searchOrders", {"MarketplaceIds": "ATVPDKIKX0DER"})
-                content = call_result.content[0].text
-                assert content, "empty response"
-                data = json.loads(content)
-                assert "status" in data or "error" in data, f"unexpected response shape: {list(data.keys())}"
-                print(f"OK — got response: {list(data.keys())}")
-                passed += 1
+                try:
+                    call_result = await session.call_tool("searchOrders", {"MarketplaceIds": "ATVPDKIKX0DER"})
+                    content = call_result.content[0].text
+                    assert content, "empty response"
+                    data = json.loads(content)
+                    assert "status" in data or "error" in data, f"unexpected response shape: {list(data.keys())}"
+                    print(f"OK — got response: {list(data.keys())}")
+                    passed += 1
+                except Exception as e:
+                    print(f"FAIL: {e}")
+                    failed += 1
 
     except ConnectionRefusedError:
         print(f"\nFAIL: Cannot connect to {url}")
         failed += 1
-    except Exception as e:
+    except BaseException as e:
         print(f"FAIL: {e}")
         failed += 1
 
