@@ -1,0 +1,9 @@
+services:
+  amazon-seller-mcp:
+    build: .
+    container_name: amazon-seller-mcp
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
